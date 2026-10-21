@@ -161,7 +161,7 @@ svg{display:block}
 select.pill{display:block;width:100%;line-height:34px}
 .pill.no{background:var(--badbg);border-color:#f8cdd3;color:var(--bad)}
 .legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:#eef3ff;border-radius:12px;padding:10px 12px;margin-top:12px;font-size:14px}
-.legend span{display:flex;align-items:center;gap:8px}.legend .isi{width:52px;height:30px;pointer-events:none;justify-content:center}
+.legend span{display:flex;align-items:center;gap:8px}#away{font-weight:700;color:#8a5a00}.legend .isi{width:52px;height:30px;pointer-events:none;justify-content:center}
 @media(max-width:639px){
   .shead{display:none}
   .srow{grid-template-columns:28px minmax(0,1fr);row-gap:8px;padding:12px}
@@ -647,7 +647,7 @@ function logoHTML() {
 
 /* ======================= STATE ======================= */
 const S = { token: null, user: null, kelas: [], siswa: [], asisten: {}, tanggal: today(), lapCache: {}, lapV: {}, page: 'dashboard', kelasNama: '', pending: 0, siswaFull: null, users: null, editId: null, filt: { q: '', k: '' }, lastSync: 0 };
-const APP_VER = '2026-10-21.25'; // harus sama dengan APP_VER di Code.gs
+const APP_VER = '2026-10-22.27'; // harus sama dengan APP_VER di Code.gs
 const GRADES = ['P', 'P+', 'A', 'A-']; // pilihan nilai kegiatan (sama dengan GRADES di Code.gs)
 const isAdmin = () => !!S.user && S.user.role === 'admin';
 const isGuru = () => !!S.user && S.user.role === 'guru'; // guru: satu kelas tetap, hanya mengisi KBM + nilainya
@@ -677,6 +677,26 @@ function draftLockedFor(l, n) {
   if (!S.user || isAdmin() || isGuru() || !draftOf(l, n)) return '';
   const o = draftOwnerOf(l, n);
   return !o ? 'admin' : o.toLowerCase() === S.user.nama.toLowerCase() ? '' : o;
+}
+/** Shift yang sedang berjalan menurut jam perangkat (Shift 1 08.00-16.00, Shift 2 16.00-08.00). Hanya dipakai untuk tanggal hari ini. */
+const curShift = () => { const h = new Date().getHours(); return h >= 8 && h < 16 ? 1 : 2; };
+/** Draft asisten LAIN pada satu murid, per shift (draft bernama; draft tanpa pemilik = admin tetap tampil seperti biasa):
+ *  t[n-1] = shift n sedang diisi asisten lain -> kolom shift itu disembunyikan (shift lainnya tetap terbuka, mis. asisten sore tetap bisa mengisi shift 2).
+ *  hide = seluruh murid disembunyikan: kedua shift sedang diisi orang lain, atau (hari ini) shift yang sedang berjalan sedang diisi orang lain.
+ *  Draft milik asisten ini sendiri membuat murid tetap tampil. Admin dan guru selalu melihat semuanya. */
+function takenShifts(L) {
+  const r = { t: [false, false], hide: false };
+  if (!L || !S.user || isAdmin() || isGuru()) return r;
+  const me = S.user.nama.toLowerCase();
+  let own = false;
+  for (let n = 1; n <= 2; n++) {
+    if (cellOf(L, n) || !draftOf(L, n)) continue; // sudah jadi laporan / tidak ada draft pada shift ini
+    const o = draftOwnerOf(L, n);
+    if (!o) continue;
+    if (o.toLowerCase() === me) own = true; else r.t[n - 1] = true;
+  }
+  r.hide = !own && ((r.t[0] && r.t[1]) || (S.tanggal === today() && r.t[curShift() - 1]));
+  return r;
 }
 /** Sel status satu siswa menurut peran: guru = nama guru yang mengisi KBM hari itu (kp; satu kali per hari, tanpa shift),
  *  selain itu = laporan asisten shift n (p/s). Hasil: {a: nama, ...} atau null. */
@@ -1005,12 +1025,16 @@ function kelasHTML(k) {
     ? '<div>No</div><div>Nama Murid</div><div>Keterangan</div>' + (libur ? '' : '<div>Nama Guru</div>')
     : '<div>No</div><div>Nama Murid</div><div>Shift 1<small>' + SHIFT_T[1] + '</small></div><div>Shift 2<small>' + SHIFT_T[2] + '</small></div><div>Asisten Pagi<small>' + SHIFT_T[1] + '</small></div><div>Asisten Sore<small>' + SHIFT_T[2] + '</small></div>') + '</div>';
   if (!list.length) h += '<div class="empty">Belum ada siswa di kelas ini.' + (isAdmin() ? '<br>Tambahkan lewat menu Data Induk.' : '') + '</div>';
-  list.forEach((s, i) => {
+  let shown = 0, away = 0;
+  list.forEach(s => {
     const L = (lap && lap[s.id]) || {};
-    h += '<div class="srow"><div class="no">' + (i + 1) + '</div><div class="nm">' + esc(s.nama) + '</div>' + (libur ? '<div class="kl">Tidak ada kegiatan KBM</div>' : guru ? guruCell(s, cellOf(L, 1), lap) : shiftCell(s, 1, cellOf(L, 1), lap, names, tots[1]) + shiftCell(s, 2, cellOf(L, 2), lap, names, tots[2])) + '</div>';
+    const tk = guru ? { t: [false, false], hide: false } : takenShifts(L);
+    if (tk.hide) { away++; return; } // sedang diisi asisten lain: hilang dari daftar ini
+    h += '<div class="srow"><div class="no">' + (++shown) + '</div><div class="nm">' + esc(s.nama) + '</div>' + (libur ? '<div class="kl">Tidak ada kegiatan KBM</div>' : guru ? guruCell(s, cellOf(L, 1), lap) : (tk.t[0] ? '' : shiftCell(s, 1, cellOf(L, 1), lap, names, tots[1])) + (tk.t[1] ? '' : shiftCell(s, 2, cellOf(L, 2), lap, names, tots[2]))) + '</div>';
   });
+  if (list.length && !shown && away) h += '<div class="empty">Semua murid sedang diisi asisten lain.</div>';
   if (libur) return h + '</div>';
-  h += '</div><div class="legend"><span><span class="isi on">Isi</span> = Sudah laporan</span><span><span class="isi">Isi</span> = Belum laporan</span>' + (guru ? '' : '<span><span class="isi dr">Lanjut</span> = Sedang diisi (tersimpan otomatis)</span>') + '</div>';
+  h += '</div><div class="legend"><span><span class="isi on">Isi</span> = Sudah laporan</span><span><span class="isi">Isi</span> = Belum laporan</span>' + (guru ? '' : '<span><span class="isi dr">Lanjut</span> = Sedang diisi (tersimpan otomatis)</span>') + (away ? '<span id="away">' + away + ' murid sedang diisi asisten lain (disembunyikan sementara)</span>' : '') + '</div>';
   return h;
 }
 
