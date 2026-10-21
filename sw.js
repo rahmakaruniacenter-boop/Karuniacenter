@@ -1,7 +1,7 @@
 // Service worker: menyimpan tampilan aplikasi di HP supaya terbuka cepat (dan tampilan tetap terbuka walau sinyal jelek)
 // Data laporan TIDAK disimpan di sini: semua panggilan ke server (POST) langsung ke jaringan.
 // Setiap kali index.html / shim.js diganti, naikkan nomor versi di bawah ini (otomatis oleh tools/build_pwa.js).
-const C = 'karunia-v2026-10-21.25';
+const C = 'karunia-v2026-10-22.27';
 const SHELL = ['./', 'index.html', 'manifest.json', 'config.js', 'shim.js', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(C).then(c => c.addAll(SHELL.map(u => new Request(u, {cache: 'reload'})))).then(() => self.skipWaiting()));
